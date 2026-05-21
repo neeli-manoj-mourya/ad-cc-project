@@ -1,12 +1,13 @@
 """
-make_narration.py — Simple Telugu TTS → MP3 converter
-======================================================
+make_narration.py — Extract video audio + synthesize Telugu narration
+=====================================================================
 Usage:
-    python make_narration.py
+    python make_narration.py                          # synthesize from narration.txt only
+    python make_narration.py --video movie.mp4       # extract audio MP3 + synthesize narration
 
-Reads narration.txt (Telugu lines with gap timestamps),
-converts each line to speech using Edge TTS (te-IN-MohanNeural),
-combines all into a single output/narration_final.mp3
+Outputs:
+    - output/<video>_audio.mp3            (from --video flag)
+    - output/narration_final.mp3          (from narration.txt via Edge TTS)
 
 Format of narration.txt:
     gap_start_seconds | gap_end_seconds | Telugu text
@@ -16,6 +17,7 @@ Example:
     17.0 | 38.0 | వంశీ కేఫేలో ఒంటరిగా కూర్చొని సంజనా కోసం ఎదురుచూస్తుంటాడు.
 """
 
+import argparse
 import asyncio
 import os
 import ssl
@@ -147,6 +149,33 @@ def merge_clips_to_mp3(clips: list[dict], total_duration: float, out_path: Path)
 
 def main() -> None:
     """Main entry point."""
+    parser = argparse.ArgumentParser(prog="make_narration", description="Extract video audio MP3 and/or synthesize narration from narration.txt")
+    parser.add_argument("--video", type=Path, help="Optional input video file to extract audio MP3")
+    args = parser.parse_args()
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    # ── Extract video audio if --video was provided ────────────────────────
+    if args.video:
+        video_path: Path = args.video
+        if not video_path.exists():
+            print(f"ERROR: video not found: {video_path}")
+            sys.exit(1)
+        
+        out_mp3 = OUTPUT_DIR / f"{video_path.stem}_audio.mp3"
+        print(f"Extracting audio from {video_path.name} → {out_mp3.name}...")
+        cmd = [
+            "ffmpeg", "-y", "-i", str(video_path),
+            "-vn", "-ac", "2", "-ar", "44100",
+            "-codec:a", "libmp3lame", "-q:a", "2",
+            str(out_mp3),
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"ERROR: ffmpeg audio extraction failed:\n{result.stderr[-500:]}")
+        else:
+            print(f"  ✅ Audio MP3 saved: {out_mp3}\n")
+
     if not INPUT_FILE.exists():
         # Create a blank narration.txt for the user to fill in
         blank = "# Telugu Audio Description Script\n# Format: gap_start_seconds | gap_end_seconds | Telugu text\n# Lines starting with # are ignored.\n# Paste your lines below:\n"
@@ -208,3 +237,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+ 

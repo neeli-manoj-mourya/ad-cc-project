@@ -84,6 +84,13 @@ def mix_narration_track(
 
     # ── Two-pass loudnorm → final MP3 ─────────────────────────────────
     normalized_mp3 = output_dir / f"{stem}_audio_description_telugu.mp3"
+    # Remove existing file to avoid permission denied errors (e.g. if open in media player)
+    if normalized_mp3.exists():
+        try:
+            normalized_mp3.unlink()
+        except PermissionError:
+            log.warning(f"[AudioMixer] Cannot delete {normalized_mp3} — close it in any media player and retry.")
+            raise
     _two_pass_loudnorm(narration_wav, normalized_mp3)
 
     # ── Export JSON metadata ───────────────────────────────────────────

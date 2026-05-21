@@ -109,9 +109,9 @@ def _synthesize_edge(text: str, out_path: Path, speed: float) -> bool:
     try:
         import edge_tts  # type: ignore
 
-        # Cinematic narration: slightly slower (-5%) for narrator gravitas
-        cinematic_offset = -5
-        rate_pct = int((speed - 1.0) * 100) + cinematic_offset
+        # Convert speed multiplier to edge-tts rate percentage
+        # e.g. 1.2 → +20%, 1.0 → +0%, 0.9 → -10%
+        rate_pct = int((speed - 1.0) * 100)
         rate_str = f"+{rate_pct}%" if rate_pct >= 0 else f"{rate_pct}%"
 
         # Slightly lower pitch for warm male narrator tone

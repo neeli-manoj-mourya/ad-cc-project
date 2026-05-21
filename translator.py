@@ -64,26 +64,42 @@ def _query_gemini_translate(description: SceneDescription) -> str:
 
     available_seconds = description.gap.usable_duration(config.safety_padding)
 
-    prompt = f"""You are a Telugu movie narrator. A blind person is watching a movie. Tell them what's happening on screen in Telugu.
+    prompt = f"""You are a Telugu movie audio describer for blind viewers. Your job: describe what's on screen in natural, spoken Hyderabadi Telugu — SHORT, VIVID, CONVERSATIONAL.
 
+Study these examples carefully and match this exact style:
+
+English: "A man walks into a dark room and nervously looks around"
+Telugu: "అతను చీకటి గదిలోకి వెళ్ళి, టెన్షన్‌గా చుట్టూ చూశాడు"
+
+English: "Two friends laugh and eat street food together"
+Telugu: "ఇద్దరు ఫ్రెండ్స్ స్ట్రీట్ ఫుడ్ తింటూ నవ్వుతున్నారు"
+
+English: "A woman cries alone sitting by a window at night"
+Telugu: "రాత్రిపూట ఆమె ఒంటరిగా కూర్చుని ఏడుస్తోంది"
+
+English: "A car speeds through empty streets in heavy rain"
+Telugu: "కార్ వాన లో వేగంగా ఖాళీ రోడ్డు మీద పోతోంది"
+
+English: "The hero stares at the villain with cold anger"
+Telugu: "హీరో చల్లటి కోపంతో విలన్‌ని చూస్తున్నాడు"
+
+English: "A child runs excitedly toward a playground"
+Telugu: "పిల్లాడు సంతోషంగా పరిగెత్తుకుంటూ పార్క్‌కి వెళ్తున్నాడు"
+
+---
+Now describe this scene:
 English: "{description.english_text}"
 
-LANGUAGE STYLE — MOST IMPORTANT:
-Write in "వాడుక భాష" (spoken Telugu), NOT "గ్రాంథిక భాష" (literary Telugu).
-Imagine you are sitting next to a blind friend in a movie theater in Hyderabad, whispering what's on screen. Use the exact Telugu words you would use in that real conversation.
+Gap duration: {available_seconds:.1f} seconds (audio plays at 1.2x speed, so write even shorter)
 
-For ANY English word that Telugu people commonly say in English in daily life, write the English word in Telugu script as-is. Telugu people say "gym" not "వ్యాయామశాల", "phone" not "చరవాణి", "office" not "కార్యాలయం", "hospital" not "వైద్యశాల", "car" not "మోటారు వాహనం", etc.
+STRICT RULES:
+1. MAX 1 sentence. Under 4 seconds → just a short phrase.
+2. Hyderabad spoken Telugu ("వాడుక భాష") — NOT formal/textbook Telugu.
+3. English loanwords in Telugu script: car→కార్, phone→ఫోన్, office→ఆఫీస్, tension→టెన్షన్
+4. No filler, no repetition. Every word must earn its place.
+5. Target {max(4, int(available_seconds * 10))} Telugu characters max.
 
-GENERAL RULE: If a word sounds like something from a Telugu textbook or Doordarshan news, DON'T use it. Use what a normal person in Hyderabad would say.
-
-DESCRIPTION STYLE:
-- Be descriptive and emotional. Include HOW characters feel, not just what they do.
-- "అతను టెన్షన్‌గా ఆమె వైపు చూస్తున్నాడు" is better than "అతను చూస్తున్నాడు"
-- Capture the mood: nervousness, happiness, sadness, romance, tension
-- Keep it natural — like you're actually telling your friend what you see
-- 1-2 sentences OK for longer gaps
-
-Respond with ONLY the Telugu sentence(s)."""
+Reply with ONLY the Telugu sentence. Nothing else."""
 
     @retry(stop=stop_after_attempt(config.gemini_max_retries),
            wait=wait_exponential(multiplier=config.gemini_retry_delay, min=2, max=10))
@@ -108,13 +124,13 @@ Respond with ONLY the Telugu sentence(s)."""
 def _estimate_duration(text: str, chars_per_second: float = 12.0) -> float:
     """
     Rough estimate of Telugu TTS duration based on character count.
-    Telugu averages ~12 characters per second of natural speech.
-    This is refined after actual TTS synthesis in duration_optimizer.py.
+    Telugu averages ~12 characters per second at natural speed.
+    We divide by 1.2 since all clips are played at 1.2x speed.
     """
     if not text:
         return 0.0
     char_count = len(text.strip())
-    return char_count / chars_per_second
+    return (char_count / chars_per_second) / 1.2
 
 
 # ── Cache Helpers ─────────────────────────────────────────────────────────

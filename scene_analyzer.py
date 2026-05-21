@@ -112,28 +112,33 @@ def _query_gemini_vision(gap: SilenceGap,
     if previous_description:
         context_note = f"\nPrevious narration context: {previous_description}"
 
-    prompt = f"""You are describing a movie scene for a blind person who wants to FEEL the movie, not just know what's happening.
+    prompt = f"""You are an audio describer for a blind person watching a Telugu movie. Look at these frames and describe ONLY what you literally see.
 
-Look at these frames from a movie. Timestamp: {gap.start:.1f}s to {gap.end:.1f}s
-{context_note}
+Frames: {gap.start:.1f}s to {gap.end:.1f}s.{context_note}
 
-Write a vivid, descriptive English sentence about what's happening visually. 
+SPECIAL CASES — handle these first before anything else:
+1. TEXT ON SCREEN (title cards, quote cards, dedication cards):
+   → Say exactly: 'Title card reads: "<the exact text shown>"'
+   → Do NOT describe the background color or font. Just read the text.
 
-WHAT TO DESCRIBE (pick what matters most):
-- Character emotions: Are they happy, nervous, sad, angry, shy, excited?
-- Body language: leaning in, pulling away, fidgeting, staring, avoiding eye contact
-- Scene atmosphere: dark room, sunny street, crowded cafe, empty gym
-- Important actions: someone entering, leaving, handing something, looking at someone
-- Visual storytelling: a clock ticking, a rose on a table, rain on a window
+2. CHARACTER NAME CARDS (e.g. "Prudhvi Kamepalli as Arjun"):
+   → Say exactly: 'Character card: <Name> as <Role>'
+   → If it says "Story/Direction by <Name>", say: 'Credits: <Name> — Story and Direction'
 
-HOW TO WRITE:
-- Be specific and emotional, not generic. "She nervously tucks her hair behind her ear" is better than "She touches her hair"
-- Include WHO is doing WHAT and HOW they feel
-- 2-3 short sentences are OK if the gap is long ({gap.duration:.1f}s available)
-- Present tense, like you're watching it happen right now
-- Don't describe dialogue or sounds — only what you SEE
+3. END CREDITS / SUBSCRIBE screens:
+   → Say: 'End credits rolling' or 'Subscribe screen displayed'
+   → Do NOT list crew names.
 
-Respond with ONLY the description. No quotes, no explanation."""
+4. PRODUCTION LOGOS / STUDIO LOGOS:
+   → Say: 'Production logo displayed'
+
+FOR NORMAL SCENES (people, locations, actions):
+- Use character names if they appeared in a name card earlier. Otherwise say "the man" or "the woman" — do NOT make up names.
+- Describe ONLY what is VISIBLE. Do NOT invent objects, locations, or actions.
+- Focus on: who is present, what they are doing, their expression/emotion, the setting.
+- Present tense. Keep it factual and concise. Gap is {gap.duration:.1f}s long.
+
+Respond with ONLY the description. No explanation, no quotes around your answer."""
 
     @retry(stop=stop_after_attempt(config.gemini_max_retries),
            wait=wait_exponential(multiplier=config.gemini_retry_delay, min=2, max=10))

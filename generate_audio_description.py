@@ -193,7 +193,7 @@ def main() -> None:
         print("\nERROR: No clips were synthesized.")
         sys.exit(1)
 
-    total_duration = max(c["end"] for c in clips) + 5.0
+    total_duration = max(c["end"] for c in clips)
     out_mp3 = OUTPUT_DIR / "narration_final.mp3"
 
     merge_clips_to_mp3(clips, total_duration, out_mp3)

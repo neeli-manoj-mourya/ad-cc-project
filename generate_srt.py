@@ -5,20 +5,18 @@ Usage:
     python generate_srt.py --audio output/movie_audio.mp3
 
 Prerequisites:
-    pip install openai-whisper
+    pip install faster-whisper
 
 Output:
     output/<audio_stem>.srt
 
-This script uses OpenAI Whisper to transcribe Telugu audio with timestamps,
-then converts the output into a properly formatted SRT subtitle file.
+This script uses faster-whisper (large-v3 model) to transcribe Telugu audio
+with accurate word-level timestamps, then writes a properly formatted SRT file.
 """
 
 import argparse
-import json
 import os
 import ssl
-import subprocess
 import sys
 from pathlib import Path
 
@@ -38,7 +36,10 @@ ssl.create_default_context = _no_verify_ssl
 # ───────────────────────────────────────────────────────────────────────────
 
 OUTPUT_DIR = Path("output")
-TEMP_DIR = Path("temp/whisper_output")
+
+# Model to use — large-v3 gives best Telugu accuracy.
+# Change to "medium" if you are low on RAM (4 GB+).
+WHISPER_MODEL = "large-v3"
 
 
 def format_timestamp(seconds: float) -> str:
@@ -50,89 +51,80 @@ def format_timestamp(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
 
-def check_whisper_installed() -> bool:
-    """Check if whisper is installed."""
+def transcribe_to_srt(audio_path: Path, output_srt: Path, model_name: str) -> None:
+    """Transcribe Telugu audio using faster-whisper and write an SRT file."""
     try:
-        import whisper  # type: ignore
-        return True
+        from faster_whisper import WhisperModel  # type: ignore
     except ImportError:
-        return False
-
-
-def transcribe_with_whisper(audio_path: Path) -> dict:
-    """Transcribe audio using OpenAI Whisper and return result with timestamps."""
-    print(f"  Loading Whisper model for Telugu transcription...")
-    try:
-        import whisper  # type: ignore
-    except ImportError:
-        print("ERROR: openai-whisper not installed.")
-        print("       Install it with: pip install openai-whisper")
+        print("ERROR: faster-whisper not installed.")
+        print("       Run: pip install faster-whisper")
         sys.exit(1)
 
-    try:
-        # Load model (base is good balance of speed/accuracy)
-        model = whisper.load_model("base")
-        
-        print(f"  Transcribing '{audio_path.name}' (Telugu)...")
-        result = model.transcribe(
-            str(audio_path),
-            language="te",  # Telugu
-            task="transcribe",
-            verbose=False,
-        )
-        
-        return result
-    except Exception as exc:
-        print(f"ERROR: Whisper transcription failed: {exc}")
-        sys.exit(1)
+    print(f"  Loading faster-whisper model '{model_name}'...")
+    print("  (First run will download the model ~3 GB — please wait)\n")
 
+    # device="auto" uses GPU if available, otherwise CPU
+    # compute_type="int8" reduces RAM and speeds up CPU inference
+    model = WhisperModel(model_name, device="auto", compute_type="int8")
 
-def generate_srt_from_whisper(result: dict, output_srt: Path) -> None:
-    """Convert Whisper JSON output to SRT format."""
-    srt_content = []
+    print(f"  Transcribing '{audio_path.name}' in Telugu...")
+    segments, info = model.transcribe(
+        str(audio_path),
+        language="te",           # Telugu
+        task="transcribe",
+        beam_size=5,             # better accuracy than default beam_size=1
+        vad_filter=True,         # skip silence — cleaner output
+        vad_parameters={"min_silence_duration_ms": 500},
+    )
+
+    print(f"  Detected language: {info.language} "
+          f"(confidence: {info.language_probability:.0%})\n")
+
+    # consume generator now so progress is visible
+    segments = list(segments)
+
+    srt_lines: list[str] = []
     subtitle_index = 1
-    
-    segments = result.get("segments", [])
-    if not segments:
-        print("WARNING: No segments found in transcription result.")
-        return
-    
+
     for segment in segments:
-        start_time = format_timestamp(segment["start"])
-        end_time = format_timestamp(segment["end"])
-        text = segment["text"].strip()
-        
+        text = segment.text.strip()
         if not text:
             continue
-        
-        # SRT format: index, timecode, text, blank line
-        srt_content.append(f"{subtitle_index}")
-        srt_content.append(f"{start_time} --> {end_time}")
-        srt_content.append(text)
-        srt_content.append("")  # blank line
+        start = format_timestamp(segment.start)
+        end   = format_timestamp(segment.end)
+        srt_lines.append(f"{subtitle_index}")
+        srt_lines.append(f"{start} --> {end}")
+        srt_lines.append(text)
+        srt_lines.append("")   # blank line between entries
         subtitle_index += 1
-    
-    if not srt_content:
-        print("WARNING: No valid subtitles generated.")
+
+    if subtitle_index == 1:
+        print("WARNING: No subtitles were generated. Check the audio file.")
         return
-    
-    srt_text = "\n".join(srt_content)
-    output_srt.write_text(srt_text, encoding="utf-8")
-    print(f"  ✅ SRT generated: {output_srt}")
-    print(f"     Subtitles: {subtitle_index - 1} entries")
+
+    output_srt.write_text("\n".join(srt_lines), encoding="utf-8")
+    print(f"  SRT generated: {output_srt}")
+    print(f"  Total subtitles: {subtitle_index - 1}")
 
 
 def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser(
         prog="generate_srt",
-        description="Transcribe MP3 audio to Telugu SRT (closed captions) using Whisper",
+        description="Transcribe MP3 audio to Telugu SRT (closed captions) using faster-whisper",
     )
     parser.add_argument(
         "--audio",
         type=Path,
         required=True,
-        help="Input MP3 audio file to transcribe (e.g. output/movie_audio.mp3)",
+        help="Input MP3 audio file (e.g. output/movie_audio.mp3)",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=WHISPER_MODEL,
+        help=f"Whisper model to use (default: {WHISPER_MODEL}). "
+             "Options: tiny, base, small, medium, large-v2, large-v3",
     )
     args = parser.parse_args()
 
@@ -141,30 +133,20 @@ def main() -> None:
         print(f"ERROR: Audio file not found: {audio_path}")
         sys.exit(1)
 
-    if not check_whisper_installed():
-        print("ERROR: openai-whisper not installed.")
-        print("       Install it with: pip install openai-whisper")
-        sys.exit(1)
-
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    output_srt = OUTPUT_DIR / f"{audio_path.stem}.srt"
 
     print(f"\n{'='*60}")
     print("  Telugu Audio → SRT (Closed Captions) Generator")
     print(f"{'='*60}\n")
+    print(f"  Input : {audio_path}")
+    print(f"  Model : {args.model}")
+    print(f"  Output: {output_srt}\n")
 
-    # Transcribe with Whisper
-    print(f"  Input: {audio_path}")
-    result = transcribe_with_whisper(audio_path)
-
-    # Generate SRT from result
-    output_srt = OUTPUT_DIR / f"{audio_path.stem}.srt"
-    print(f"\n  Creating SRT file...")
-    generate_srt_from_whisper(result, output_srt)
+    transcribe_to_srt(audio_path, output_srt, args.model)
 
     print(f"\n{'='*60}")
-    print(f"  ✅ DONE")
-    print(f"  Output SRT: {output_srt}")
+    print(f"  DONE  →  {output_srt}")
     print(f"{'='*60}\n")
 
 
